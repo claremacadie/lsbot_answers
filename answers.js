@@ -1,60 +1,135 @@
 class App {
   constructor(url) {
     this.url = url;
-    this.schedules = [];
-    this.schedulesTally = {};
+    this.schedulesNum = 0;
 
     this.init();
     this.bind();
   }
 
-  async sendFetch(data) {
-    let formPath = this.$staffForm.getAttribute('action');
-    let formMethod = this.$staffForm.method;
+  handleBtnAdd(event) {
+    event.preventDefault();
+    this.schedulesNum += 1;
+    this.$schedulesDiv.insertAdjacentHTML('beforeend', this.scheduleFormHTML(this.schedulesNum));
+  }
 
-    return await fetch(this.url + formPath, {
+  formatData(serialisedData) {
+    let data = [];
+
+    for (let scheduleNum = 1; scheduleNum <= this.schedulesNum; scheduleNum++) {
+      let obj = {
+        "staff_id": Number(serialisedData[`staff_${scheduleNum}`]),
+        "date": serialisedData[`date_${scheduleNum}`],
+        "time": serialisedData[`time_${scheduleNum}`],
+      };
+      data.push(obj);
+    }
+    
+    return {"schedules": data};
+  }
+
+  async sendScheduleData(formData) {
+    let formPath = this.$schedulesForm.getAttribute('action');
+    let formMethod = this.$schedulesForm.method;
+    let data = JSON.stringify(this.formatData(formData));
+
+    try {
+      let response = await fetch(this.url + formPath, {
         'method': formMethod,
         'body': data,
         'headers': {
           'Content-Type': 'application/json',
         }
       });
-  }
+      if (response.status === 400) throw new Error(await response.text());
+      if (!response.ok) throw new Error(response.statusText);
+      alert(await response.text());
 
-  async createNewStaff(inputEmail, inputName) {
-    let data = JSON.stringify({'email': inputEmail, 'name': inputName});
-
-    try {
-      let response = await this.sendFetch(data);
-
-      if (!response.ok) throw new Error('Response not ok');
-      if(response.status >= 400 && response.status < 500) throw new Error('Staff can not be created. Check your inputs.');
-
-      let id = (await response.json()).id;
-      alert(`Successfully created staff with id: ${id}`);
     } catch(error) {
       alert(error);
     }
   }
 
-  async handleStaffFormSubmit(event) {
+  handleschedulesFormSubmit(event) {
     event.preventDefault();
-
-    let inputEmail = this.$staffForm.email.value.trim();
-    let inputName = this.$staffForm.name.value.trim();
-    if (!inputEmail || !inputName) {
-      alert('Staff cannot be created. Check your inputs.');
+   
+    let formData = new FormData(this.$schedulesForm);
+    let serialisedData = Object.fromEntries(formData.entries());
+    if (Object.values(serialisedData).some(val => val === '')) {
+      alert('Please check your inputs.');
     } else {
-      let id = await this.createNewStaff(inputEmail, inputName);
+      this.sendScheduleData(serialisedData);
     }
   }
 
+  async getStaffMembers() {
+    let path = '/api/staff_members';
+
+    try {
+      let response = await fetch(this.url + path);
+      if (!response.ok) throw new Error('Fetch request failed. Please try again.');
+
+      return await response.json();
+    } catch(error) {
+      return error;
+    }
+  }
+
+  async addStaffMembers() {
+    try {
+      this.staffMembers = await this.getStaffMembers();
+      this.staffOptionsHTML = this.createStaffOptions();
+    } catch(error) {
+      alert(error);
+    }
+  }
+
+  createStaffOptions() {
+    let html = '';
+
+    this.staffMembers.forEach(staffMember => {
+      html += `<option value="${staffMember.id}">${staffMember.name}</option>`
+    });
+
+    return html;
+  }
+
+  scheduleFormHTML(scheduleNum) {
+    return `
+      <fieldset id="schedule_${scheduleNum}">
+        <legend>Schedule ${scheduleNum}</legend>
+
+        <div>
+          <label for="staff_${scheduleNum}">Staff Name:</label>
+          <select id="staff_${scheduleNum}" name="staff_${scheduleNum}">
+            ${this.staffOptionsHTML}
+          </select>
+        </div>
+
+        <div>
+          <label for="date_${scheduleNum}">Date:</label>
+          <input type="text" id="date_${scheduleNum}" name="date_${scheduleNum}" placeholder="mm-dd-yy">
+        </div>
+
+        <div>
+          <label for="time_${scheduleNum}">Time:</label>
+          <input type="text" id="time_${scheduleNum}" name="time_${scheduleNum}" placeholder="hh:mm">
+        </div>
+
+      </fieldset>
+      `
+  }
+
   init() {
-    this.$staffForm = document.getElementById('staff-form');
+    this.addStaffMembers();
+    this.$schedulesDiv = document.getElementById('schedules');
+    this.$btnAdd = document.getElementById('btnAdd');
+    this.$schedulesForm = document.getElementById('schedules-form');
   }
 
   bind() {
-    this.$staffForm.addEventListener('submit', this.handleStaffFormSubmit.bind(this));
+    this.$btnAdd.addEventListener('click', this.handleBtnAdd.bind(this));
+    this.$schedulesForm .addEventListener('submit', this.handleschedulesFormSubmit.bind(this));
   }
 }
 
