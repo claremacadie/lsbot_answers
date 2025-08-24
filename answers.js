@@ -1,141 +1,198 @@
 class App {
   constructor(url) {
     this.url = url;
-    this.schedulesNum = 0;
-
-    this.init();
-    this.bind();
   }
 
-  handleBtnAdd(event) {
-    event.preventDefault();
-    this.schedulesNum += 1;
-    this.$schedulesDiv.insertAdjacentHTML('beforeend', this.scheduleFormHTML(this.schedulesNum));
+  setTimeoutPromise(delay) {
+    return new Promise((_, reject) => setTimeout(() => reject(new TimeoutError()), delay));
   }
 
-  formatData(serialisedData) {
-    let data = [];
-
-    for (let scheduleNum = 1; scheduleNum <= this.schedulesNum; scheduleNum++) {
-      let obj = {
-        "staff_id": Number(serialisedData[`staff_${scheduleNum}`]),
-        "date": serialisedData[`date_${scheduleNum}`],
-        "time": serialisedData[`time_${scheduleNum}`],
-      };
-      data.push(obj);
-    }
-    
-    return {"schedules": data};
-  }
-
-  async sendScheduleData(formData) {
-    let formPath = this.$schedulesForm.getAttribute('action');
-    let formMethod = this.$schedulesForm.method;
-    let data = JSON.stringify(this.formatData(formData));
-
+  async fetchSchedules(path) {
     try {
-      let response = await fetch(this.url + formPath, {
-        'method': formMethod,
-        'body': data,
-        'headers': {
-          'Content-Type': 'application/json',
-        }
-      });
-      if (response.status === 400) throw new Error(await response.text());
-      if (!response.ok) throw new Error(response.statusText);
-      alert(await response.text());
+      let response = await Promise.race([fetch(this.url + path), this.setTimeoutPromise(10000)]);
 
-    } catch(error) {
+      if (!response.ok) throw new Error('Reponse not ok');
+      this.schedules = await response.json();
+
+    } catch (error) {
       alert(error);
+      alert('Request failed.');
     }
   }
 
-  handleschedulesFormSubmit(event) {
-    event.preventDefault();
-   
-    let formData = new FormData(this.$schedulesForm);
-    let serialisedData = Object.fromEntries(formData.entries());
-    if (Object.values(serialisedData).some(val => val === '')) {
-      alert('Please check your inputs.');
-    } else {
-      this.sendScheduleData(serialisedData);
-    }
+  createBookingForm() {
+    this.$form = document.createElement('form');
+    this.$bookingFormDiv = document.getElementById("booking-form");
+    this.$bookingFormDiv.insertAdjacentElement('afterbegin', this.$form);
+
+    let scheduleSelectLabel = document.createElement('label');
+    scheduleSelectLabel.textContent = 'Please select one schedule:';
+    scheduleSelectLabel.setAttribute('for', 'scheduleSelect');
+
+    let scheduleSelect = document.createElement('select');
+    scheduleSelect.id = 'scheduleSelect';
+    scheduleSelect.setAttribute('name', 'id');
+    this.schedules.forEach(schedule => {
+      if (!schedule['student_email']) {
+        let option = `<option value=${schedule.id}>${this.staffMembers[schedule.staff_id]} | ${schedule.date} | ${schedule.time}</option>`;
+        scheduleSelect.insertAdjacentHTML('beforeend', option);
+      }
+    });
+    
+    let emailLabel = document.createElement('label');
+    emailLabel.textContent = 'Email';
+    let emailInput = document.createElement('input');
+    emailInput.setAttribute('type', 'text');
+    emailInput.setAttribute('name', 'student_email');
+    emailInput.required;
+    emailLabel.append(emailInput);
+
+    let submitButton = document.createElement('button');
+    submitButton.textContent = 'Submit';
+    submitButton.setAttribute('type', 'submit');
+
+    this.$form.append(scheduleSelectLabel, scheduleSelect, emailLabel, submitButton);
+    this.$form.addEventListener('submit', this.handleBookingForm.bind(this));
   }
 
-  async getStaffMembers() {
-    let path = '/api/staff_members';
-
+  async fetchStaff(path) {
     try {
       let response = await fetch(this.url + path);
-      if (!response.ok) throw new Error('Fetch request failed. Please try again.');
+      if (!response.ok) throw Error('Fetch went wrong. Please refresh the page.');
 
-      return await response.json();
-    } catch(error) {
-      return error;
-    }
-  }
-
-  async addStaffMembers() {
-    try {
-      this.staffMembers = await this.getStaffMembers();
-      this.staffOptionsHTML = this.createStaffOptions();
+      let data = await response.json();
+      this.staffMembers = {};
+      data.forEach(member => {
+        this.staffMembers[member.id] = member.name;
+      });
     } catch(error) {
       alert(error);
     }
   }
 
-  createStaffOptions() {
-    let html = '';
+  async handleBookingForm(event) {
+    event.preventDefault();
+    let formData = new FormData(this.$form);
+    let jsonFormData = Object.fromEntries(formData.entries());
+    if (Object.values(formData).some(val => val === '')) {
+      alert('Please ensure inputs are valid');
+    } else {
+      let dataToSend = JSON.stringify(jsonFormData);
+      console.log(dataToSend)
+      try {
+        let response = await fetch(this.url + '/api/bookings', {
+          'method': 'post',
+          'body': dataToSend,
+          'headers': {
+            'Content-Type': 'application/json',
+          }
+        });
 
-    this.staffMembers.forEach(staffMember => {
-      html += `<option value="${staffMember.id}">${staffMember.name}</option>`
-    });
-
-    return html;
+        if (response.ok) {
+          alert('Booked!');
+        } else {
+          let responseText = await response.text();
+          if (responseText.split(';')[0] === 'Student does not exist') {
+            let bookingId = responseText.split(';')[1].split(':')[1].trim();
+            this.createStudentForm(bookingId, jsonFormData['email']);
+          } else {
+            throw new Error(responseText);
+          }
+        }
+      } catch(error) {
+        alert(error);
+      }
+    }
   }
 
-  scheduleFormHTML(scheduleNum) {
-    return `
-      <fieldset id="schedule_${scheduleNum}">
-        <legend>Schedule ${scheduleNum}</legend>
+  createStudentForm(bookingId, studentEmail) {
+    this.$studentForm = document.createElement('form');
+    this.$studentFormDiv = document.getElementById('student-form');
+    this.$studentFormDiv.append(this.$studentForm);
 
-        <div>
-          <label for="staff_${scheduleNum}">Staff Name:</label>
-          <select id="staff_${scheduleNum}" name="staff_${scheduleNum}">
-            ${this.staffOptionsHTML}
-          </select>
-        </div>
+    let emailLabel = document.createElement('label');
+    emailLabel.textContent = 'Email: ';
+    emailLabel.setAttribute('for', 'email');
+    let emailInput = document.createElement('input');
+    emailInput.setAttribute('id', 'email');
+    emailInput.setAttribute('name', 'email');
+    emailInput.setAttribute('type', 'email');
+    emailInput.setAttribute('value', studentEmail);
+    emailLabel.append(emailInput);
 
-        <div>
-          <label for="date_${scheduleNum}">Date:</label>
-          <input type="text" id="date_${scheduleNum}" name="date_${scheduleNum}" placeholder="mm-dd-yy">
-        </div>
+    let nameLabel = document.createElement('label');
+    nameLabel.textContent = 'Name: ';
+    nameLabel.setAttribute('for', 'name');
+    let nameInput = document.createElement('input');
+    nameInput.setAttribute('id', 'name');
+    nameInput.setAttribute('name', 'name');
+    nameInput.setAttribute('type', 'text');
+    nameLabel.append(nameInput);
+  
 
-        <div>
-          <label for="time_${scheduleNum}">Time:</label>
-          <input type="text" id="time_${scheduleNum}" name="time_${scheduleNum}" placeholder="hh:mm">
-        </div>
+    let bookingLabel = document.createElement('label');
+    bookingLabel.textContent = 'Booking reference: ';
+    bookingLabel.setAttribute('for', 'booking_id');
+    let bookingInput = document.createElement('input');
+    bookingInput.setAttribute('id', 'booking_id');
+    bookingInput.setAttribute('name', 'booking_sequence');
+    bookingInput.setAttribute('type', 'text');
+    bookingInput.setAttribute('value', bookingId);
+    bookingLabel.append(bookingInput);
 
-      </fieldset>
-      `
+    let button = document.createElement('button');
+    button.textContent = 'Submit';
+    button.setAttribute('type', 'submit');
+
+    this.$studentForm.append(emailLabel, nameLabel, bookingLabel, button);
+
+    this.$studentForm.addEventListener('submit', this.handleStudentForm.bind(this));
   }
 
-  init() {
-    this.addStaffMembers();
-    this.$schedulesDiv = document.getElementById('schedules');
-    this.$btnAdd = document.getElementById('btnAdd');
-    this.$schedulesForm = document.getElementById('schedules-form');
-  }
+  async handleStudentForm(event) {
+    event.preventDefault();
+    let formData = new FormData(this.$studentForm);
+    let jsonData = Object.fromEntries(formData.entries());
+    
+    if (Object.values(jsonData).some(val => val === '')) {
+      alert('Please ensure inputs are valid');
+    } else {
+      let dataToSend = JSON.stringify(jsonData);
+      console.log(dataToSend)
+      try {
+        let response = await fetch(this.url + '/api/students', {
+          'method': 'post',
+          'body': dataToSend,
+          'headers': {
+            'Content-Type': 'application/json',
+          }
+        });
+        if (!response.ok) {
+          let responseText = await response.text();
+          throw new Error(responseText);
+        }
 
-  bind() {
-    this.$btnAdd.addEventListener('click', this.handleBtnAdd.bind(this));
-    this.$schedulesForm .addEventListener('submit', this.handleschedulesFormSubmit.bind(this));
+        let message = await response.text();
+        alert(message);
+        alert('Booked!');
+      } catch(error) {
+        alert(error);
+      }
+    }
   }
 }
 
 async function main() {
   let url = 'http://localhost:3000';
   let app = new App(url);
+
+  await app.fetchSchedules('/api/schedules');
+  await app.fetchStaff('/api/staff_members');
+  app.createBookingForm();
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
+/*
+
+*/
