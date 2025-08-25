@@ -3,75 +3,79 @@ class App {
     this.url = url;
   }
 
-  async fetchBookingDates(path) {
-    try {
-      let response = await fetch(this.url + path);
-      if (!response.ok) {
-        let responseText = await response.text();
-      } else {
-        this.bookingDates = await response.json();
-      }
-    } catch(error) {
-      alert(error.message)
-    }
+  createForm(formType) {
+    let form = document.createElement('form');
+    let label = document.createElement('label');
+    label.textContent = `Enter the schedule id of the ${formType} you wish to cancel:`;
+    let input = document.createElement('input');
+    input.setAttribute('type', 'text');
+    input.setAttribute('name', 'id');
+    label.append(input);
+    let button = document.createElement('button');
+    button.textContent = `Cancel ${formType}`;
+    button.setAttribute('type', 'submit');
+
+    form.append(label, button);
+    return form;
   }
 
-  async fetchBooking(path, bookingDate) {
-    try {
-      let response = await fetch(this.url + path + `/${bookingDate}`);
-      if (!response.ok) {
-        let responseText = await response.text();
-        throw new Error(responseText)
-      } else {
-        let data = await response.json();
-        return data;
-      }
-    } catch(error) {
-      alert(error.message)
-    }
+  createForms() {
+    this.bookingsDiv = document.getElementById('cancel_bookings');
+    this.schedulesDiv = document.getElementById('cancel_schedules');
+
+    let bookingForm = this.createForm('Booking');
+    bookingForm.setAttribute('action', '/api/bookings/');
+    bookingForm.setAttribute('method', 'PUT');
+    bookingForm.addEventListener('submit', this.handleCancelBooking.bind(this));
+    this.bookingsDiv.append(bookingForm);
+    
+    let scheduleForm = this.createForm('Schedule');
+    scheduleForm.setAttribute('action', '/api/schedules/');
+    scheduleForm.setAttribute('method', 'DELETE');
+    scheduleForm.addEventListener('submit', this.handleCancelSchedule.bind(this));
+    this.schedulesDiv.append(scheduleForm);
   }
 
-  async fetchBookings(path) {
-    this.bookings = {};
-    for (let i = 0; i < this.bookingDates.length; i++) {
-      let bookingDate = this.bookingDates[i];
-      let result = await this.fetchBooking(path, bookingDate);
-      this.bookings[bookingDate] = result;
-    }
-  }
-
-  displayBookings() {
-    let div = document.getElementById('bookings');
-    let list = document.createElement('ul');
-    div.appendChild(list);
-
-    Object.entries(this.bookings).forEach(datum => {
-      let date = datum[0];
-      let sessions = datum[1];
-      let li = document.createElement('li');
-      li.textContent = date;
-      li.className = 'date';
-      let ul = document.createElement('ul');
-      ul.classList.add('hidden')
-      li.append(ul);
-      list.append(li);
-      
-      sessions.forEach(session => {
-        let li = document.createElement('li');
-        li.textContent = session.join(' | ');
-        ul.appendChild(li);
-      });
-
-    });
-    list.addEventListener('click', this.handleListClick.bind(this));
-    console.log(list)
-  }
-
-  handleListClick(event) {
+  async handleCancelBooking(event) {
     event.preventDefault();
-    let target = event.target;
-    if (!target.classList.contains('date')) return;
-    target.firstElementChild.classList.toggle('hidden');
+    let form = event.target
+    let booking_id = form.id.value;
+    try {
+      let response = await fetch(this.url + form.getAttribute('action') + booking_id, {
+        'method': form.getAttribute('method'),
+      });
+      
+      if (!response.ok) {
+        let responseText = await response.text();
+        throw new Error(responseText);
+      }
+
+      alert('Booking cancelled');
+
+    } catch(error) {
+      alert(error.message)
+    }
+  }
+
+  async handleCancelSchedule(event) {
+    event.preventDefault();
+    let form = event.target
+    let schedule_id = form.id.value;
+    try {
+      let response = await fetch(this.url + form.getAttribute('action') + schedule_id, {
+        'method': form.getAttribute('method'),
+      });
+      
+      if (!response.ok) {
+        let responseText = await response.text();
+        throw new Error(responseText);
+      }
+
+      alert('Schedule cancelled');
+      
+    } catch(error) {
+      alert(error.message)
+    }
   }
 }
 
@@ -79,9 +83,7 @@ async function main() {
   let url = 'http://localhost:3000';
   let app = new App(url);
 
-  await app.fetchBookingDates('/api/bookings');
-  await app.fetchBookings('/api/bookings');
-  app.displayBookings();
+  app.createForms();
 }
 
 document.addEventListener('DOMContentLoaded', main);
